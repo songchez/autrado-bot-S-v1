@@ -1,0 +1,14 @@
+[project]
+name = "backtest-bot-v1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "backtesting>=0.6.5",
+    "matplotlib>=3.10.5",
+    "pandas>=2.3.1",
+    "python-dotenv>=1.1.1",
+    "streamlit>=1.48.0",
+    "yfinance>=0.2.65",
+]
