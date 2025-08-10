@@ -1,18 +1,17 @@
+import os
+import sys
+from datetime import datetime, date
+
 import streamlit as st
-import yfinance as yf
-from backtesting import Backtest, Strategy
-from backtesting.lib import crossover
 import pandas as pd
 import matplotlib.pyplot as plt
-import io
-from datetime import datetime, date
-import sys
-import os
+from backtesting import Backtest
 
 # 상위 디렉토리의 strategies 모듈을 import하기 위해 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from strategies import TrendFollowing
+from utils.data_provider import DataProvider
 
 
 def create_returns_chart(trades):
@@ -41,7 +40,23 @@ def main():
     # Sidebar for inputs
     st.sidebar.header("Backtest Parameters")
     
-    ticker = st.sidebar.text_input("Stock Ticker", value="AAPL", help="Enter stock symbol (e.g., AAPL, TSLA)")
+    # Market selection
+    market = st.sidebar.selectbox(
+        "Market",
+        options=["US", "KRX"],
+        index=0,
+        help="Select market: US (NASDAQ/NYSE) or KRX (Korean stocks)"
+    )
+    
+    # Ticker input with market-specific help
+    if market == "KRX":
+        ticker_help = "Enter Korean stock code (e.g., 005930 for Samsung, 035420 for NAVER)"
+        default_ticker = "005930"
+    else:
+        ticker_help = "Enter US stock symbol (e.g., AAPL, TSLA)"
+        default_ticker = "AAPL"
+    
+    ticker = st.sidebar.text_input("Stock Ticker", value=default_ticker, help=ticker_help)
     
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -65,18 +80,29 @@ def main():
             st.error("Short MA period must be less than Long MA period!")
             return
             
-        with st.spinner(f"Downloading {ticker} data and running backtest..."):
+        # Get market info and validate ticker
+        market_info = DataProvider.get_market_info(ticker)
+        normalized_ticker = market_info['normalized_ticker']
+        
+        # Display market info
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 📊 Market Info")
+            st.write(f"**Ticker:** {normalized_ticker}")
+            st.write(f"**Market:** {market_info['market']}")
+            st.write(f"**Exchange:** {market_info['exchange']}")
+            st.write(f"**Currency:** {market_info['currency']}")
+            if 'korean_name' in market_info:
+                st.write(f"**Korean Name:** {market_info['korean_name']}")
+        
+        with st.spinner(f"Downloading {normalized_ticker} data and running backtest..."):
             try:
-                # Download data
-                data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+                # Download data using DataProvider
+                data = DataProvider.download_data(ticker, start=start_date, end=end_date, market=market, progress=False)
                 
-                if data.empty:
-                    st.error("No data downloaded. Please check the ticker symbol and dates.")
+                if data is None or data.empty:
+                    st.error(f"No data downloaded for {normalized_ticker}. Please check the ticker symbol and dates.")
                     return
-                
-                # Fix MultiIndex columns issue
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.droplevel(1)
                 
                 # Set strategy parameters
                 TrendFollowing.short_ma = int(short_ma)
@@ -88,7 +114,40 @@ def main():
                 trades = stats["_trades"] if "_trades" in stats else None
                 
                 # Display results
-                st.success("Backtest completed successfully!")
+                st.success(f"Backtest completed successfully for {normalized_ticker}!")
+                
+                # Add monitoring button
+                col_monitor, _ = st.columns([2, 3])
+                with col_monitor:
+                    if st.button("📈 Apply for Monitoring", type="secondary"):
+                        # Store monitoring configuration
+                        monitoring_config = {
+                            'ticker': normalized_ticker,
+                            'market': market_info['market'],
+                            'strategy': 'TrendFollowing',
+                            'parameters': {
+                                'short_ma': int(short_ma),
+                                'long_ma': int(long_ma)
+                            },
+                            'added_date': datetime.now().isoformat(),
+                            'status': 'active',
+                            'cash': cash,
+                            'commission': commission
+                        }
+                        
+                        # Save to session state (in production, save to persistent storage)
+                        if 'monitoring_list' not in st.session_state:
+                            st.session_state.monitoring_list = []
+                        
+                        # Check if already exists
+                        existing = next((item for item in st.session_state.monitoring_list 
+                                       if item['ticker'] == normalized_ticker and item['strategy'] == 'TrendFollowing'), None)
+                        
+                        if existing:
+                            st.warning(f"⚠️ {normalized_ticker} is already being monitored with TrendFollowing strategy")
+                        else:
+                            st.session_state.monitoring_list.append(monitoring_config)
+                            st.success(f"✅ {normalized_ticker} added to monitoring list!")
                 
                 # Key metrics in columns
                 col1, col2, col3, col4 = st.columns(4)

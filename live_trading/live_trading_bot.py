@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.config import Config
 from real_time_signal_example import RealTimeMonitor, EmailAlert, TelegramBot
+from utils.monitoring_storage import MonitoringStorage
 
 # 로깅 설정
 def setup_logging():
@@ -76,12 +77,7 @@ def signal_handler(signum, frame):
 def print_banner():
     """시작 배너 출력"""
     print("=" * 60)
-    print("🎯 실시간 거래 신호 모니터링 봇")
-    print("=" * 60)
-    print(f"📊 모니터링 종목: {', '.join(Config.TICKERS)}")
-    print(f"⏰ 업데이트 간격: {Config.UPDATE_INTERVAL}초")
-    print(f"📈 활성 전략: {len(Config.STRATEGIES_CONFIG)}개")
-    print(f"🔔 알림 시스템: {', '.join(Config.get_configured_alerts())}")
+    print("🎯 Enhanced 실시간 모니터링 봇 (Storage 통합)")
     print("=" * 60)
 
 
@@ -108,82 +104,84 @@ def print_help():
 
 
 def run_configuration_check():
-    """설정 확인 및 테스트"""
+    """설정 확인 및 테스트 (Storage 통합)"""
     print("🔧 설정 확인 중...")
     
-    # 설정 유효성 검사
-    errors = Config.validate_config()
-    if errors:
-        print("❌ 설정 오류:")
-        for error in errors:
-            print(f"   - {error}")
-        print("\n.env 파일을 확인하고 올바른 값을 설정해주세요.")
+    # Storage 확인
+    try:
+        storage = MonitoringStorage()
+        stats = storage.get_monitoring_stats()
+        print(f"💾 Storage OK: {stats['total']} total configurations")
+    except Exception as e:
+        print(f"❌ Storage 오류: {e}")
         return False
     
-    # 알림 시스템 테스트
-    alert_systems = create_alert_systems()
-    if not alert_systems:
-        print("❌ 설정된 알림 시스템이 없습니다.")
-        print("이메일 또는 텔레그램 설정을 완료해주세요.")
-        return False
-    
-    print("✅ 모든 설정이 완료되었습니다!")
+    print("✅ 기본 설정이 완료되었습니다!")
     return True
 
 
 def run_test_mode():
-    """테스트 모드 실행"""
+    """테스트 모드 실행 (Storage 통합)"""
     print("🧪 테스트 모드로 실행합니다...")
     
-    if not run_configuration_check():
-        return
+    # Storage 상태 확인
+    storage = MonitoringStorage()
+    summary = storage.get_monitoring_stats()
+    print(f"📊 Storage Status: {summary}")
     
     # 알림 시스템 생성
     alert_systems = create_alert_systems()
     
-    # 테스트 신호 발송
-    test_signals = {
-        'TrendFollowing': {
-            'action': 'BUY',
-            'price': 150.25,
-            'timestamp': datetime.now(),
-            'confidence': 0.85
+    if alert_systems:
+        # 테스트 신호 발송
+        test_signals = {
+            'TrendFollowing': {
+                'action': 'BUY',
+                'price': 150.25,
+                'timestamp': datetime.now(),
+                'confidence': 0.85
+            }
         }
-    }
-    
-    print("📤 테스트 알림을 발송합니다...")
-    for alert_system in alert_systems:
-        try:
-            alert_system.send_signal_alert('AAPL', test_signals)
-            print(f"✅ {type(alert_system).__name__} 테스트 성공")
-        except Exception as e:
-            print(f"❌ {type(alert_system).__name__} 테스트 실패: {e}")
+        
+        print("📤 테스트 알림을 발송합니다...")
+        for alert_system in alert_systems:
+            try:
+                alert_system.send_signal_alert('AAPL', test_signals)
+                print(f"✅ {type(alert_system).__name__} 테스트 성공")
+            except Exception as e:
+                print(f"❌ {type(alert_system).__name__} 테스트 실패: {e}")
+    else:
+        print("⚠️ 설정된 알림 시스템이 없습니다.")
     
     print("🧪 테스트 완료!")
 
 
 def run_live_monitoring():
-    """실제 모니터링 실행"""
+    """실제 모니터링 실행 (Storage 통합)"""
     logger = setup_logging()
-    
-    if not run_configuration_check():
-        return
     
     print_banner()
     
     # 알림 시스템 생성
     alert_systems = create_alert_systems()
-    if not alert_systems:
-        print("❌ 알림 시스템이 설정되지 않았습니다.")
+    
+    # 모니터링 시스템 생성 (Storage 통합)
+    monitor = RealTimeMonitor(
+        alert_systems=alert_systems,
+        update_interval=Config.UPDATE_INTERVAL,
+        use_storage=True
+    )
+    
+    # 모니터링 요약 정보 출력
+    summary = monitor.get_monitoring_summary()
+    if summary.get('total_active', 0) == 0:
+        print("❌ 활성된 모니터링 설정이 없습니다.")
+        print("💡 Streamlit 대시보드에서 모니터링을 추가하세요.")
         return
     
-    # 모니터링 시스템 생성
-    monitor = RealTimeMonitor(
-        tickers=Config.TICKERS,
-        strategies_config=Config.STRATEGIES_CONFIG,
-        alert_systems=alert_systems,
-        update_interval=Config.UPDATE_INTERVAL
-    )
+    print(f"📊 Active Monitoring: {summary['total_active']} configurations")
+    print(f"💹 Tickers: {', '.join(summary['active_tickers'])}")
+    print(f"🚀 Strategies: {', '.join(summary['active_strategies'])}")
     
     print("🚀 실시간 모니터링을 시작합니다...")
     print("중단하려면 Ctrl+C를 누르세요.\n")

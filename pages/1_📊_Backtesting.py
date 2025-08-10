@@ -12,6 +12,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from strategies import ALL_STRATEGIES as STRATEGIES
+from utils.data_provider import DataProvider
+from utils.monitoring_storage import MonitoringStorage
 
 
 # 언어별 텍스트 정의 (기본 + 전략 관련)
@@ -319,13 +321,73 @@ def main():
     
     # 기본 설정
     st.sidebar.markdown("---")
-    ticker = st.sidebar.text_input(lang["ticker_label"], value="AAPL", help=lang["ticker_help"])
+    
+    # 시장 선택 추가
+    market = st.sidebar.selectbox(
+        "🌍 Market / 시장" if language == "한국어" else "🌍 Market",
+        options=["US", "KRX"],
+        index=0,
+        help="Select market: US (NASDAQ/NYSE) or KRX (Korean stocks)" if language == "English" else "시장 선택: 미국 (NASDAQ/NYSE) 또는 한국 (KRX)"
+    )
+    
+    # 시장별 기본값과 도움말 설정
+    if market == "KRX":
+        default_ticker = "005930"  # 삼성전자
+        ticker_help_en = "Enter Korean stock code (e.g., 005930 for Samsung, 035420 for NAVER)"
+        ticker_help_ko = "한국 주식 코드를 입력하세요 (예: 005930 삼성전자, 035420 네이버)"
+    else:
+        default_ticker = "AAPL"
+        ticker_help_en = "Enter US stock symbol (e.g., AAPL, TSLA)"
+        ticker_help_ko = "미국 주식 심볼을 입력하세요 (예: AAPL, TSLA)"
+    
+    ticker_help = ticker_help_ko if language == "한국어" else ticker_help_en
+    ticker = st.sidebar.text_input(lang["ticker_label"], value=default_ticker, help=ticker_help)
+    
+    # 인터벌 선택 추가
+    st.sidebar.subheader("🕐 Time Interval / 시간 인터벌" if language == "한국어" else "🕐 Time Interval")
+    
+    interval_options = {
+        "1d": "1 Day / 1일" if language == "한국어" else "1 Day",
+        "1h": "1 Hour / 1시간" if language == "한국어" else "1 Hour", 
+        "4h": "4 Hours / 4시간" if language == "한국어" else "4 Hours",
+        "15m": "15 Minutes / 15분" if language == "한국어" else "15 Minutes",
+        "5m": "5 Minutes / 5분" if language == "한국어" else "5 Minutes"
+    }
+    
+    selected_interval_display = st.sidebar.selectbox(
+        "Select Interval" if language == "English" else "인터벌 선택",
+        options=list(interval_options.values()),
+        index=0,
+        help="Choose time interval for backtesting. Shorter intervals provide more trading opportunities." if language == "English" else "백테스트 시간 인터벌을 선택하세요. 짧은 인터벌은 더 많은 거래 기회를 제공합니다."
+    )
+    
+    # Get actual interval code
+    interval = [k for k, v in interval_options.items() if v == selected_interval_display][0]
+    
+    # 날짜 범위 조정 (인터벌에 따라)
+    if interval in ['5m', '15m', '1h']:
+        # 단기 인터벌은 최근 30일만 지원
+        from datetime import timedelta
+        default_start = date.today() - timedelta(days=30)
+        default_end = date.today() - timedelta(days=1)
+        date_help = "Short intervals: Max 30 days" if language == "English" else "단기 인터벌: 최대 30일"
+    elif interval == '4h':
+        # 4시간은 최근 90일
+        from datetime import timedelta
+        default_start = date.today() - timedelta(days=90)
+        default_end = date.today() - timedelta(days=1)
+        date_help = "4-hour interval: Max 90 days" if language == "English" else "4시간 인터벌: 최대 90일"
+    else:
+        # 일봉은 긴 기간 가능
+        default_start = date(2020, 1, 1)
+        default_end = date(2023, 12, 31)
+        date_help = "Daily interval: Long periods available" if language == "English" else "일봉: 긴 기간 사용 가능"
     
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        start_date = st.date_input(lang["start_date"], value=date(2020, 1, 1))
+        start_date = st.date_input(lang["start_date"], value=default_start, help=date_help)
     with col2:
-        end_date = st.date_input(lang["end_date"], value=date(2023, 12, 31))
+        end_date = st.date_input(lang["end_date"], value=default_end, help=date_help)
     
     st.sidebar.subheader(lang["trading_header"])
     cash = st.sidebar.number_input(lang["initial_cash"], min_value=1000, value=10000)
@@ -335,18 +397,31 @@ def main():
     
     # 메인 콘텐츠
     if run_button:
-        with st.spinner(lang["downloading"].format(ticker, selected_strategy_name)):
+        # 시장 정보 표시
+        market_info = DataProvider.get_market_info(ticker)
+        normalized_ticker = market_info['normalized_ticker']
+        
+        # 사이드바에 시장 정보 표시
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 📊 Market Info / 시장 정보")
+            st.write(f"**Ticker:** {normalized_ticker}")
+            st.write(f"**Market:** {market_info['market']}")
+            st.write(f"**Exchange:** {market_info['exchange']}")
+            st.write(f"**Currency:** {market_info['currency']}")
+            if 'korean_name' in market_info:
+                st.write(f"**Korean Name:** {market_info['korean_name']}")
+        
+        with st.spinner(lang["downloading"].format(normalized_ticker, selected_strategy_name)):
             try:
-                # 데이터 다운로드
-                data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+                # DataProvider를 사용해서 데이터 다운로드 (인터벌 지원)
+                data = DataProvider.download_data(
+                    ticker, start=start_date, end=end_date, interval=interval, market=market, progress=False
+                )
                 
-                if data.empty:
+                if data is None or data.empty:
                     st.error(lang["no_data"])
                     return
-                
-                # MultiIndex 컬럼 문제 수정
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.droplevel(1)
                 
                 # 전략 클래스 가져오기 및 매개변수 설정
                 strategy_class = strategy_info["class"]
@@ -360,11 +435,44 @@ def main():
                 stats = bt.run()
                 trades = stats["_trades"] if "_trades" in stats else None
                 
-                # 결과 표시
-                st.success(lang["success"])
+                # 결과 표시 (인터벌 정보 포함)
+                st.success(f"{lang['success']} (Interval: {selected_interval_display}, Total bars: {len(data)})")
                 
-                # 백테스트 요약
-                st.subheader(lang["backtest_summary"])
+                # 모니터링 추가 버튼
+                col_monitor, col_spacer = st.columns([3, 2])
+                with col_monitor:
+                    monitor_btn_text = "📈 모니터링에 추가" if language == "한국어" else "📈 Add to Monitoring"
+                    if st.button(monitor_btn_text, type="secondary"):
+                        try:
+                            # MonitoringStorage 사용해서 저장
+                            storage = MonitoringStorage()
+                            
+                            monitoring_config = {
+                                'ticker': normalized_ticker,
+                                'market': market_info['market'],
+                                'strategy': selected_strategy_key,
+                                'parameters': strategy_params,
+                                'added_date': datetime.now().isoformat(),
+                                'status': 'active',
+                                'cash': cash,
+                                'commission': commission
+                            }
+                            
+                            success = storage.add_monitoring_config(monitoring_config)
+                            
+                            if success:
+                                success_msg = f"✅ {normalized_ticker}이(가) 모니터링 목록에 추가되었습니다!" if language == "한국어" else f"✅ {normalized_ticker} added to monitoring list!"
+                                st.success(success_msg)
+                            else:
+                                warning_msg = f"⚠️ {normalized_ticker}은(는) 이미 {selected_strategy_key} 전략으로 모니터링 중입니다." if language == "한국어" else f"⚠️ {normalized_ticker} is already being monitored with {selected_strategy_key} strategy."
+                                st.warning(warning_msg)
+                                
+                        except Exception as e:
+                            error_msg = f"❌ 모니터링 추가 중 오류 발생: {e}" if language == "한국어" else f"❌ Error adding to monitoring: {e}"
+                            st.error(error_msg)
+                
+                # 백테스트 요약 (인터벌 정보 포함)
+                st.subheader(f"{lang['backtest_summary']} - {selected_interval_display}")
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -390,8 +498,19 @@ def main():
                 
                 with chart_col1:
                     # 가격 차트와 지표
-                    st.subheader(lang["price_chart"])
-                    price_fig = create_price_chart(data.tail(252), selected_strategy_key, strategy_params, lang)
+                    st.subheader(f"{lang['price_chart']} ({selected_interval_display})")
+                    
+                    # 인터벌에 따라 차트 기간 조정
+                    if interval in ['5m', '15m']:
+                        chart_data = data.tail(288)  # 1일 치 데이터 (5분봉 기준)
+                    elif interval == '1h':
+                        chart_data = data.tail(168)  # 1주 치 데이터
+                    elif interval == '4h':
+                        chart_data = data.tail(180)  # 30일 치 데이터
+                    else:
+                        chart_data = data.tail(252)  # 1년 치 데이터 (일봉)
+                    
+                    price_fig = create_price_chart(chart_data, selected_strategy_key, strategy_params, lang)
                     st.pyplot(price_fig)
                     plt.close(price_fig)
                 

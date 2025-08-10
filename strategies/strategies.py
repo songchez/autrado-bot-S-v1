@@ -21,22 +21,34 @@ class TrendFollowing(Strategy):
 
 
 class RSIStrategy(Strategy):
-    """RSI 과매수/과매도 전략"""
+    """RSI 과매수/과매도 전략 (더 빈번한 거래)"""
     rsi_period = 14
-    rsi_upper = 70
-    rsi_lower = 30
+    rsi_upper = 65  # 70에서 65로 낮춰서 더 빈번한 매도
+    rsi_lower = 35  # 30에서 35로 높여서 더 빈번한 매수
 
     def init(self):
-        self.rsi = self.I(lambda x: pd.Series(x).rolling(self.rsi_period).apply(
-            lambda data: 100 - (100 / (1 + (data.diff().clip(lower=0).mean() / 
-                                       data.diff().clip(upper=0).abs().mean()))), raw=False), 
-                         self.data.Close)
+        def calculate_rsi(close_prices):
+            delta = close_prices.diff()
+            gain = delta.where(delta > 0, 0).rolling(window=self.rsi_period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=self.rsi_period).mean()
+            rs = gain / loss
+            return 100 - (100 / (1 + rs))
+        
+        close = pd.Series(self.data.Close, index=self.data.index)
+        self.rsi = self.I(lambda: calculate_rsi(close))
 
     def next(self):
-        if self.rsi[-1] < self.rsi_lower and not self.position:
+        if len(self.rsi) < self.rsi_period:
+            return
+        
+        current_rsi = self.rsi[-1]
+        if np.isnan(current_rsi):
+            return
+            
+        if current_rsi < self.rsi_lower and not self.position:
             self.buy()
-        elif self.rsi[-1] > self.rsi_upper and self.position:
-            self.sell()
+        elif current_rsi > self.rsi_upper and self.position:
+            self.position.close()
 
 
 class MACDStrategy(Strategy):

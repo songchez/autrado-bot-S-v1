@@ -8,8 +8,18 @@ import sys
 import subprocess
 
 def run_streamlit_app():
-    """Streamlit 백테스팅 앱 실행"""
-    app_path = os.path.join(os.path.dirname(__file__), 'multi_strategy_app.py')
+    """Enhanced Streamlit 백테스팅 앱 실행"""
+    # 프로젝트 루트에서 main_app.py 찾기
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    main_app_path = os.path.join(project_root, 'main_app.py')
+    
+    # main_app.py가 있으면 사용, 없으면 기존 앱 사용
+    if os.path.exists(main_app_path):
+        app_path = main_app_path
+        print("🚀 Enhanced Multi-Page App을 실행합니다...")
+    else:
+        app_path = os.path.join(os.path.dirname(__file__), 'multi_strategy_app.py')
+        print("🎯 기본 Multi-Strategy App을 실행합니다...")
     
     try:
         subprocess.run([

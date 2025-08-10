@@ -19,7 +19,9 @@ import os
 # 상위 디렉토리의 strategies 모듈을 import하기 위해 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from strategies import ALL_STRATEGIES as STRATEGIES
+from strategies.strategies import STRATEGIES
+from utils.data_provider import DataProvider
+from utils.monitoring_storage import MonitoringStorage
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
